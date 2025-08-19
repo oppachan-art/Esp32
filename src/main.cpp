@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <WiFi.h>
 #include <SD.h>
 #include <vector>
 #include "OneButton.h"

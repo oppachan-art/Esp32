@@ -15,7 +15,7 @@
 // --- Configuration ---
 // ================================================================= //
 
-// IMPORTANT: This is the name of your Bluetooth earbuds.
+// IMPORTANT: This is the name of your Bluetooh earbuds.
 const char *BT_EARBUDS_NAME = "Mivi DuoPods K6"; 
 
 // --- Hardware Pin Definitions ---

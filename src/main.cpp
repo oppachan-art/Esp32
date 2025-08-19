@@ -12,7 +12,7 @@
 #include "OneButton.h"
 
 // ================================================================= //
-// --- Configuration ---
+// --- Configuration --
 // ================================================================= //
 
 // IMPORTANT: This is the name of your Bluetooh earbuds.

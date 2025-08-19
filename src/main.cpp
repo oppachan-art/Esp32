@@ -1,3 +1,6 @@
+#define A2DP_DECODER_MP3_HELIX // Force enable the Helix decoder
+#include "AudioTools.h"        // Include the master library header that reads the define
+
 #include <Arduino.h>
 #include <SD.h>
 #include <SPI.h>

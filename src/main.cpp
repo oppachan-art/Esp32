@@ -1,15 +1,9 @@
 #include <Arduino.h>
 #include <SD.h>
-#include <SPI.h>
 #include <vector>
-
-// Core Audio and Bluetooth Libraries
-#include "BluetoothA2DPSource.h"
-#include "AudioCodecs/CodecWAV.h" // Use the standard WAV decoder
-#include "AudioTools.h"
-
-// Library for easy button management
 #include "OneButton.h"
+#include "BluetoothA2DPSource.h"
+#include "Audio.h" // The new, simpler audio library header
 
 // ================================================================= //
 // --- Configuration ---
@@ -17,10 +11,11 @@
 const char *BT_EARBUDS_NAME = "Mivi DuoPods K6"; 
 
 // --- Hardware Pin Definitions ---
+// Note: This new library uses the standard VSPI pins for SD card
 #define SD_CS    5
-#define SPI_MOSI 23
-#define SPI_MISO 19
 #define SPI_SCK  18
+#define SPI_MISO 19
+#define SPI_MOSI 23
 #define BTN_NEXT_PIN 13
 #define BTN_PREV_PIN 14
 
@@ -28,74 +23,28 @@ const char *BT_EARBUDS_NAME = "Mivi DuoPods K6";
 // --- Global Objects and Variables ---
 // ================================================================= //
 BluetoothA2DPSource a2dp_source;
-WAVDecoder wav_decoder; // <<<< CHANGED from MP3DecoderHelix to WAVDecoder
-AudioPlayer player(a2dp_source, wav_decoder); // The player now uses the WAV decoder
+Audio audio; // The new audio engine object!
 
 OneButton buttonNext(BTN_NEXT_PIN, true);
 OneButton buttonPrev(BTN_PREV_PIN, true);
 
 std::vector<String> playlist;
 int currentTrackIndex = 0;
-bool isPlaying = false;
 
 // ================================================================= //
 // --- Function Prototypes ---
 // ================================================================= //
-void playFile(const char* filename);
 void playNextTrack();
 void playPrevTrack();
 void stopPlayback();
-void pausePlayback();
 
 // ================================================================= //
-// --- AVRCP Callback (Receives commands FROM earbuds) ---
+// --- Library Status Reporting ---
 // ================================================================= //
-void avrcp_callback(esp_avrc_playback_stat_t playback_status) {
-  switch(playback_status) {
-    case ESP_AVRC_PLAYBACK_STOPPED:
-      Serial.println("AVRCP: STOP");
-      stopPlayback();
-      break;
-    case ESP_AVRC_PLAYBACK_PLAYING:
-      Serial.println("AVRCP: PLAY");
-      if (!isPlaying) { playFile(playlist[currentTrackIndex].c_str()); }
-      else { player.pause(false); }
-      break;
-    case ESP_AVRC_PLAYBACK_PAUSED:
-      Serial.println("AVRCP: PAUSE");
-      pausePlayback();
-      break;
-    case ESP_AVRC_PLAYBACK_FWD_SEEK:
-      Serial.println("AVRCP: FORWARD (Next)");
-      playNextTrack();
-      break;
-    case ESP_AVRC_PLAYBACK_REV_SEEK:
-      Serial.println("AVRCP: REVERSE (Previous)");
-      playPrevTrack();
-      break;
-    default:
-      Serial.println("AVRCP: (Other)");
-      break;
-  }
-}
-
-// ================================================================= //
-// --- Helper Functions ---
-// ================================================================= //
-void buildPlaylist(fs::FS &fs, const char *dirname) {
-  Serial.printf("Scanning for .wav files in: %s\n", dirname);
-  File root = fs.open(dirname);
-  if (!root) { Serial.println("-> Failed to open directory"); return; }
-  
-  File file = root.openNextFile();
-  while (file) {
-    // <<<< CHANGED to look for .wav and .WAV files
-    if (!file.isDirectory() && (String(file.name()).endsWith(".wav") || String(file.name()).endsWith(".WAV"))) {
-      Serial.printf("  Found: %s\n", file.name());
-      playlist.push_back(String(file.name()));
-    }
-    file = root.openNextFile();
-  }
+// This function is called by the audio library to report its status
+void audio_info(const char *info){
+    Serial.print("audio_info: ");
+    Serial.println(info);
 }
 
 // ================================================================= //
@@ -103,77 +52,83 @@ void buildPlaylist(fs::FS &fs, const char *dirname) {
 // ================================================================= //
 void setup() {
   Serial.begin(115200);
-  Serial.println("\n--- ESP32 WAV Player (A2DP Source) ---");
+  Serial.println("\n--- ESP32 Simple WAV Player ---");
 
-  Serial.println("Initializing SD card...");
+  // --- Initialize SD Card ---
+  // The new library prefers its own SPI setup
   SPI.begin(SPI_SCK, SPI_MISO, SPI_MOSI, SD_CS);
   if (!SD.begin(SD_CS)) {
     Serial.println("FATAL: SD Card Mount Failed! Halting.");
     while (1);
   }
-  buildPlaylist(SD, "/");
-  if (playlist.empty()) {
-    Serial.println("WARNING: No .wav files found!");
-  }
 
+  // --- Build Playlist ---
+  File root = SD.open("/");
+  File file = root.openNextFile();
+  while (file) {
+    if (!file.isDirectory() && (String(file.name()).endsWith(".wav") || String(file.name()).endsWith(".WAV"))) {
+      Serial.printf("  Found: %s\n", file.name());
+      playlist.push_back(String(file.name()));
+    }
+    file = root.openNextFile();
+  }
+  if (playlist.empty()) Serial.println("WARNING: No .wav files found!");
+
+  // --- Initialize Bluetooth ---
+  Serial.printf("Starting Bluetooth... Connecting to '%s'\n", BT_EARBUDS_NAME);
+  a2dp_source.start(BT_EARBUDS_NAME);
+  
+  // --- Configure the NEW Audio Engine ---
+  // The audio library needs to know where to send the sound. We tell it to send to our Bluetooth object.
+  audio.setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT); // Standard I2S pins, not used for BT
+  audio.setConnection(A2DP_SINK); // <<< CRITICAL: Tell audio to output to Bluetooth!
+  audio.setA2DPSource(&a2dp_source);
+
+  // --- Initialize Buttons ---
   buttonNext.attachClick(playNextTrack);
   buttonNext.attachLongPressStart(stopPlayback);
   buttonPrev.attachClick(playPrevTrack);
-  Serial.println("Buttons initialized.");
-
-  Serial.printf("Starting Bluetooth... Connecting to '%s'\n", BT_EARBUDS_NAME);
-  a2dp_source.set_avrcp_callback(avrcp_callback);
-  a2dp_source.start(BT_EARBUDS_NAME);
+  Serial.println("Buttons initialized. Ready to play.");
 }
 
 void loop() {
+  audio.loop(); // The new library requires this to be called continuously
   buttonNext.tick();
   buttonPrev.tick();
-  
-  if (isPlaying && !player.isPaused()) {
-    if (!player.copy()) {
-      Serial.println("Song finished, playing next.");
-      playNextTrack();
-    }
-  }
 }
 
 // ================================================================= //
-// --- Audio Control Functions (No changes needed here) ---
+// --- Audio Control Functions (Rewritten for the new library) ---
 // ================================================================= //
-void playFile(const char* filename) {
-  if (isPlaying) player.stop();
-  Serial.printf("Playing file: %s\n", filename);
-  player.begin(SD.open(filename));
-  isPlaying = player.isOk();
-  if (!isPlaying) Serial.println("ERROR: Failed to start player.");
-}
-
 void playNextTrack() {
   if (playlist.empty() || !a2dp_source.is_connected()) return;
-  if (!isPlaying) { playFile(playlist[currentTrackIndex].c_str()); return; }
   
   currentTrackIndex++;
-  if (currentTrackIndex >= playlist.size()) currentTrackIndex = 0;
-  playFile(playlist[currentTrackIndex].c_str());
+  if (currentTrackIndex >= playlist.size()) {
+    currentTrackIndex = 0; // Loop back
+  }
+  
+  String filepath = "/" + playlist[currentTrackIndex];
+  Serial.printf("Playing next: %s\n", filepath.c_str());
+  audio.connecttoFS(SD, filepath.c_str());
 }
 
 void playPrevTrack() {
-  if (playlist.empty() || !isPlaying || !a2dp_source.is_connected()) return;
+  if (playlist.empty() || !audio.isRunning() || !a2dp_source.is_connected()) return;
   
   currentTrackIndex--;
-  if (currentTrackIndex < 0) currentTrackIndex = playlist.size() - 1;
-  playFile(playlist[currentTrackIndex].c_str());
+  if (currentTrackIndex < 0) {
+    currentTrackIndex = playlist.size() - 1; // Loop back
+  }
+
+  String filepath = "/" + playlist[currentTrackIndex];
+  Serial.printf("Playing previous: %s\n", filepath.c_str());
+  audio.connecttoFS(SD, filepath.c_str());
 }
 
 void stopPlayback() {
-  if (isPlaying) {
-    player.stop();
-    isPlaying = false;
+  if (audio.isRunning()) {
     Serial.println("Playback stopped.");
+    audio.stopSong();
   }
-}
-
-void pausePlayback() {
-  if (isPlaying) player.pause(!player.isPaused());
 }

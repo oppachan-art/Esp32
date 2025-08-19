@@ -4,7 +4,7 @@
 #include <vector> // Used for managing thesong playlist
 
 // Core Audio and Blutooth Libraries
-#include "BluetoothA2DPSource.h"       // For sending audio via Bluetooth (A2DP Source)
+#include "BluetoothA2DPSource.h"       // For sendng audio via Bluetooth (A2DP Source)
 #include "AudioCodecs/CodecMP3Helix.h" // The Helix MP3 dcoder library
 #include "AudioTools.h"                // The main audio toolkit from pschatzmann
 

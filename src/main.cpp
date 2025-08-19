@@ -10,7 +10,7 @@
 // ================================================================= //
 const char *BT_EARBUDS_NAME = "Mivi DuoPods K6"; 
 
-// --- Hardware Pin Definitions ---
+// --- Hardware Pin Definitions --
 // Note: This new library uses the standard VSPI pins for SD card
 #define SD_CS    5
 #define SPI_SCK  18

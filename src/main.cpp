@@ -4,7 +4,7 @@
 #include <Arduino.h>
 #include <SD.h>
 #include <SPI.h>
-#include <vector> // Used for managing thesong playlist
+#include <vector> // Used for managing thesong plylist
 
 // Core Audio and Blutooth Libraries
 #include "BluetoothA2DPSource.h"       // For sendng audio via Bluetooth (A2DP Source)
